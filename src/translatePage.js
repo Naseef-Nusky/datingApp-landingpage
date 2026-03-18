@@ -34,7 +34,7 @@ export async function translatePage(targetLang) {
   const texts = elements.map((el) => el.innerText.trim()).filter(Boolean);
   if (texts.length === 0) return;
 
-  const apiUrl = ''; // use Vite proxy to /api
+  const apiUrl = 'https://api.vantagedating.com';
   try {
     const res = await fetch(`${apiUrl}/api/translate`, {
       method: 'POST',

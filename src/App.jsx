@@ -82,8 +82,8 @@ function App() {
   const [promoShown, setPromoShown] = useState(false);
 
   const activeRight = RIGHT_MESSAGES[step];
-  // Use Vite dev proxy (/api -> backend) so we avoid CORS issues
-  const apiUrl = '';
+  // Use production API when deployed, Vite dev proxy in local
+  const apiUrl = import.meta.env.PROD ? 'https://api.vantagedating.com' : '';
   // Main app URL for legal pages (same routes as frontend: /about, /terms, /privacy, /safety)
   const frontendBase = (import.meta.env.VITE_FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
 
