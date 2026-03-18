@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import './index.css';
+import { translatePage } from './translatePage';
 
 const STEPS = [
   'gender',
@@ -65,15 +66,46 @@ function App() {
   const [gender, setGender] = useState('');
   const [goal, setGoal] = useState('');
   const [attraction, setAttraction] = useState('');
-  const [ageFrom, setAgeFrom] = useState(25);
-  const [ageTo, setAgeTo] = useState(45);
+  const [ageFrom, setAgeFrom] = useState('');
+  const [ageTo, setAgeTo] = useState('');
   const [interests, setInterests] = useState([]);
   const [birthday, setBirthday] = useState({ day: '', month: '', year: '' });
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [showPromoPopup, setShowPromoPopup] = useState(false); // kept for later use (currently not shown)
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [language, setLanguage] = useState(
+    localStorage.getItem('landing_language') || 'en'
+  );
+  const [showPromoPopup, setShowPromoPopup] = useState(false);
+  const [promoStage, setPromoStage] = useState('teaser'); // 'teaser' | 'form'
+  const [promoShown, setPromoShown] = useState(false);
 
   const activeRight = RIGHT_MESSAGES[step];
+  // Use Vite dev proxy (/api -> backend) so we avoid CORS issues
+  const apiUrl = '';
+  // Main app URL for legal pages (same routes as frontend: /about, /terms, /privacy, /safety)
+  const frontendBase = (import.meta.env.VITE_FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+
+  // Show promo popup once when user pauses anywhere on the landing flow
+  useEffect(() => {
+    if (promoShown) return;
+    const timer = setTimeout(() => {
+      setShowPromoPopup(true);
+      setPromoShown(true);
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [step, promoShown]);
+
+  // Run whole-page translation when language changes (similar to main app)
+  useEffect(() => {
+    if (!language || language === 'en' || language === 'en-uk') return;
+    // slight delay so initial render paints before translation
+    const id = setTimeout(() => {
+      translatePage(language);
+    }, 300);
+    return () => clearTimeout(id);
+  }, [language, step]);
 
   const toggleInterest = (value) => {
     setInterests((prev) =>
@@ -81,7 +113,83 @@ function App() {
     );
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
+    setError('');
+
+    if (step === 'goal' && !goal) {
+      setError('Please choose what you are looking for.');
+      return;
+    }
+
+    if (step === 'attraction' && !attraction) {
+      setError('Please select who you are most attracted to.');
+      return;
+    }
+
+    if (step === 'interests' && interests.length === 0) {
+      setError('Please pick at least one thing you enjoy.');
+      return;
+    }
+
+    if (step === 'birthday') {
+      if (!birthday.day || !birthday.month || !birthday.year) {
+        setError('Please enter your full date of birth.');
+        return;
+      }
+      const dob = new Date(`${birthday.month} ${birthday.day}, ${birthday.year}`);
+      const age = (Date.now() - dob.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+      if (Number.isNaN(age) || age < 18) {
+        setError('You must be at least 18 years old.');
+        return;
+      }
+    }
+
+    if (step === 'name' && !name.trim()) {
+      setError('Please enter a name we can use for you.');
+      return;
+    }
+
+    if (step === 'email') {
+      const emailTrimmed = email.trim();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailTrimmed || !emailRegex.test(emailTrimmed)) {
+        setError('Please enter a valid email address.');
+        return;
+      }
+
+      // Call backend to send login link, then show popup on success
+      try {
+        setSubmitting(true);
+        const res = await fetch(`${apiUrl}/api/auth/send-login-link`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: emailTrimmed })
+        });
+        if (!res.ok) {
+          let message = 'Failed to send login link. Please try again.';
+          try {
+            const data = await res.json();
+            if (data?.message) message = data.message;
+          } catch {
+            // ignore JSON parse errors
+          }
+          // Show popup anyway so user sees the "check your email" message,
+          // but surface the backend error below the form.
+          setError(message);
+        } else {
+          setStep('emailSent');
+          return;
+        }
+      } catch (err) {
+        setError(err.message || 'Failed to send login link. Please try again.');
+      } finally {
+        setSubmitting(false);
+      }
+      // Even if there was an error, move to the emailSent step so popup appears
+      setStep('emailSent');
+      return;
+    }
+
     const currentIndex = STEPS.indexOf(step);
     if (currentIndex < STEPS.length - 1) {
       setStep(STEPS[currentIndex + 1]);
@@ -89,11 +197,80 @@ function App() {
   };
 
   const handleEmailSentClose = () => {
-    setStep('gender');
+    // Close the popup and reload the landing page
+    window.location.reload();
+  };
+
+  const handleOpenEmailInbox = () => {
+    const addr = (email || '').toLowerCase();
+    const domain = addr.split('@')[1] || '';
+
+    let url = 'https://mail.google.com';
+    if (domain.includes('yahoo.')) url = 'https://mail.yahoo.com';
+    else if (domain.includes('outlook.') || domain === 'hotmail.com' || domain.includes('live.'))
+      url = 'https://outlook.live.com';
+    else if (domain === 'icloud.com' || domain.endsWith('me.com')) url = 'https://www.icloud.com/mail';
+
+    window.open(url, '_blank');
+  };
+
+  const handleGoogleSignIn = () => {
+    window.location.href = `${apiUrl}/api/auth/google`;
+  };
+
+  const handlePromoPrimaryClick = async () => {
+    if (promoStage === 'teaser') {
+      setPromoStage('form');
+      return;
+    }
+
+    // promoStage === 'form' → act like email step: validate and send login link,
+    // then show the main email-sent popup.
+    setError('');
+    const emailTrimmed = email.trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!name.trim()) {
+      setError('Please enter a name we can use for you.');
+      return;
+    }
+    if (!emailTrimmed || !emailRegex.test(emailTrimmed)) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const res = await fetch(`${apiUrl}/api/auth/send-login-link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailTrimmed })
+      });
+      if (!res.ok) {
+        let message = 'Failed to send login link. Please try again.';
+        try {
+          const data = await res.json();
+          if (data?.message) message = data.message;
+        } catch {
+          // ignore JSON parse errors
+        }
+        setError(message);
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to send login link. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+
+    setShowPromoPopup(false);
+    setStep('emailSent');
   };
 
   const renderLeftCard = () => {
     const compatibility = step === 'gender' ? null : step === 'goal' ? 92 : step === 'emailSent' ? null : 95;
+
+    // Shared title/content variables for all non-gender steps
+    let title = '';
+    let content = null;
 
     if (step === 'gender') {
       return (
@@ -126,6 +303,7 @@ function App() {
           <p className="text-xs text-slate-400 mb-2">or</p>
           <button
             type="button"
+            onClick={handleGoogleSignIn}
             className="w-full border border-slate-300 rounded-full py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 transition flex items-center justify-center gap-2"
           >
             <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-white overflow-hidden">
@@ -153,7 +331,7 @@ function App() {
           <input
             type="email"
             placeholder="Your email"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+            className="w-full rounded-full border border-slate-300 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
@@ -164,8 +342,11 @@ function App() {
     const goals = ['Serious', 'Pen pal', 'Romantic', 'Flirty', 'Naughty'];
     const interestOptions = ['Games', 'Cooking', 'Nature', 'Dancing', 'Travelling', 'Biking', 'Camping', 'Movies'];
 
-    let title = '';
-    let content = null;
+    const ageFromOptions = Array.from({ length: 75 - 18 + 1 }).map((_, i) => 18 + i);
+    const ageToOptions = [
+      ...Array.from({ length: 80 - 20 + 1 }).map((_, i) => 20 + i),
+      '80+'
+    ];
 
     if (step === 'goal') {
       title = 'What are you looking for?';
@@ -210,24 +391,26 @@ function App() {
           <div className="flex items-center justify-between gap-3 text-sm text-slate-700">
             <span className="whitespace-nowrap text-xs">Between ages:</span>
             <select
-              className="flex-1 border border-slate-300 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-red-400"
+              className="flex-1 border border-slate-300 rounded-full px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-red-400"
               value={ageFrom}
-              onChange={(e) => setAgeFrom(Number(e.target.value))}
+              onChange={(e) => setAgeFrom(e.target.value)}
             >
-              {[18, 21, 25, 30, 35].map((n) => (
-                <option key={n} value={n}>
+              <option value="">From</option>
+              {ageFromOptions.map((n) => (
+                <option key={n} value={String(n)}>
                   {n}
                 </option>
               ))}
             </select>
             <span className="text-xs">to</span>
             <select
-              className="flex-1 border border-slate-300 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-red-400"
+              className="flex-1 border border-slate-300 rounded-full px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-red-400"
               value={ageTo}
-              onChange={(e) => setAgeTo(Number(e.target.value))}
+              onChange={(e) => setAgeTo(e.target.value)}
             >
-              {[30, 35, 40, 45, 50, 60].map((n) => (
-                <option key={n} value={n}>
+              <option value="">To</option>
+              {ageToOptions.map((n) => (
+                <option key={n} value={String(n)}>
                   {n}
                 </option>
               ))}
@@ -267,7 +450,7 @@ function App() {
           <p className="text-xs text-slate-500">You must be at least 18 years old.</p>
           <div className="grid grid-cols-3 gap-3">
             <select
-              className="border border-slate-300 rounded-md px-2 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-red-400"
+              className="border border-slate-300 rounded-full px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-red-400"
               value={birthday.day}
               onChange={(e) => setBirthday({ ...birthday, day: e.target.value })}
             >
@@ -279,7 +462,7 @@ function App() {
               ))}
             </select>
             <select
-              className="border border-slate-300 rounded-md px-2 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-red-400"
+              className="border border-slate-300 rounded-full px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-red-400"
               value={birthday.month}
               onChange={(e) => setBirthday({ ...birthday, month: e.target.value })}
             >
@@ -293,7 +476,7 @@ function App() {
               )}
             </select>
             <select
-              className="border border-slate-300 rounded-md px-2 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-red-400"
+              className="border border-slate-300 rounded-full px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-red-400"
               value={birthday.year}
               onChange={(e) => setBirthday({ ...birthday, year: e.target.value })}
             >
@@ -320,7 +503,7 @@ function App() {
           <input
             type="text"
             placeholder="Your name"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+            className="w-full rounded-full border border-slate-300 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
@@ -336,7 +519,7 @@ function App() {
           <input
             type="email"
             placeholder="Your email"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+            className="w-full rounded-full border border-slate-300 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
@@ -350,19 +533,23 @@ function App() {
           <p className="text-center text-2xl md:text-3xl font-semibold text-slate-900 mb-4">
             {compatibility}%
             <span className="block text-sm md:text-base font-normal text-slate-500 mt-2">
-              Your match compatibility score
+              How well you match here
             </span>
           </p>
         )}
         <div className="bg-white rounded-2xl shadow-xl p-8">
           <h2 className="text-lg font-semibold text-slate-900 mb-5 text-center">{title}</h2>
           {content}
+          {error && (
+            <p className="text-xs text-red-500 mb-3 text-center">{error}</p>
+          )}
           <button
             type="button"
-            onClick={() => (step === 'email' ? setStep('emailSent') : handleNext())}
-            className="w-full py-3.5 rounded-full font-semibold text-base text-white bg-gradient-to-r from-vantage-purple via-vantage-pink to-vantage-coral hover:opacity-90 transition"
+            onClick={handleNext}
+            disabled={submitting}
+            className="w-full py-3.5 rounded-full font-semibold text-base text-white bg-gradient-to-r from-vantage-purple via-vantage-pink to-vantage-coral hover:opacity-90 transition disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Next
+            {submitting && step === 'email' ? 'Sending…' : 'Next'}
           </button>
         </div>
       </div>
@@ -403,7 +590,12 @@ function App() {
         <div className="flex items-center">
           <select
             className="bg-black/60 text-white text-xs md:text-sm px-3 py-1.5 rounded-full border border-white/30 outline-none cursor-pointer"
-            defaultValue="en"
+            value={language}
+            onChange={(e) => {
+              const lang = e.target.value;
+              setLanguage(lang);
+              localStorage.setItem('landing_language', lang);
+            }}
           >
             <option value="en">English</option>
             <option value="es">Español</option>
@@ -452,48 +644,151 @@ function App() {
         </div>
       </main>
 
-      {/* Email-sent popup (centered) */}
+      {/* Email-sent popup (centered, brand gradient layout) */}
       {step === 'emailSent' && (
         <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 px-4">
-          <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-lg text-center text-slate-900 relative">
+          <div className="w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden relative">
+            {/* Close button */}
             <button
               type="button"
               onClick={handleEmailSentClose}
-              className="absolute top-3 right-3 text-slate-400 hover:text-slate-600 text-xl leading-none"
+              className="absolute top-3 right-4 z-20 text-white/80 hover:text-white text-xl leading-none"
             >
               ×
             </button>
-            <div className="mb-6">
-              <div className="mx-auto h-20 w-28 rounded-lg flex items-center justify-center text-4xl bg-gradient-to-r from-vantage-purple via-vantage-pink to-vantage-coral text-white">
+
+            {/* Top section - brand gradient (logo theme) */}
+            <div className="bg-gradient-to-r from-vantage-purple via-vantage-pink to-vantage-coral px-8 pt-12 pb-10 text-center text-white">
+              <div className="mx-auto mb-6 h-24 w-32 rounded-xl flex items-center justify-center text-5xl bg-white/10 shadow-lg">
                 ✉️
               </div>
+              <h2 className="text-2xl font-semibold mb-2">
+                We’ve emailed you a secure login link
+              </h2>
+              <p className="text-sm text-white/90">
+                Open the message we sent to{' '}
+                <span className="font-semibold">
+                  {email || 'your email address'}
+                </span>{' '}
+                and tap the link inside to finish signing in.
+              </p>
             </div>
-            <h2 className="text-2xl font-semibold mb-3">
-              We’ve sent a login link to your email
-            </h2>
-            <p className="text-sm text-slate-600 mb-6">
-              Please open the email we sent to{' '}
-              <span className="font-semibold text-slate-900">
-                {email || 'your email address'}
-              </span>{' '}
-              and click the link to finish signing in.
-            </p>
-            <button
-              type="button"
-              onClick={handleEmailSentClose}
-              className="mt-2 px-6 py-3.5 rounded-full font-semibold text-sm text-white bg-gradient-to-r from-vantage-purple via-vantage-pink to-vantage-coral hover:opacity-90 transition"
-            >
-              Open your email
-            </button>
+
+            {/* White bottom section */}
+            <div className="bg-white px-8 py-6 text-center">
+              <p className="text-xs text-slate-600 mb-4">
+                Didn&apos;t receive anything yet? Check your spam or promotions folder, or request a fresh link from the login page.
+              </p>
+              <button
+                type="button"
+                onClick={handleOpenEmailInbox}
+                className="inline-flex items-center justify-center px-6 py-3.5 rounded-full text-white text-sm font-semibold bg-gradient-to-r from-vantage-purple via-vantage-pink to-vantage-coral hover:opacity-90 transition"
+              >
+                Go to your email inbox
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Promo popup temporarily disabled */}
-      {false && showPromoPopup && (
+      {/* Promo popup – appears while waiting on birthday step */}
+      {showPromoPopup && (
         <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/50 px-4">
-          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md relative">
-            {/* ...popup content kept here for future use... */}
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md relative overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowPromoPopup(false)}
+              className="absolute top-3 right-4 text-slate-400 hover:text-slate-600 text-xl leading-none z-10"
+            >
+              ×
+            </button>
+
+            {promoStage === 'teaser' && (
+              <div className="px-6 pt-8 pb-6 text-center">
+                <p className="text-xs font-semibold text-white bg-gradient-to-r from-vantage-purple via-vantage-pink to-vantage-coral rounded-full inline-block px-3 py-1 mb-4">
+                  Don&apos;t miss your perfect match
+                </p>
+                <h3 className="text-lg font-semibold text-slate-900 mb-2">
+                  We have new members who are a great fit for you.
+                </h3>
+                <p className="text-xs text-slate-600 mb-5">
+                  Create your free Vantage account to start talking to attractive, active singles right away.
+                </p>
+                <button
+                  type="button"
+                  onClick={handlePromoPrimaryClick}
+                  className="w-full bg-gradient-to-r from-vantage-purple via-vantage-pink to-vantage-coral hover:opacity-90 text-white text-sm font-semibold rounded-full py-3 mb-3"
+                >
+                  Create account
+                </button>
+                <button
+                  type="button"
+                  onClick={handleGoogleSignIn}
+                  className="w-full border border-slate-300 rounded-full py-3 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-2"
+                >
+                  <span className="inline-flex items-center justify-center h-4 w-4 rounded-full bg-white overflow-hidden">
+                    <img
+                      src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
+                      alt="Google"
+                      className="h-3 w-3"
+                    />
+                  </span>
+                  <span>Sign in with Google</span>
+                </button>
+              </div>
+            )}
+
+            {promoStage === 'form' && (
+              <div className="px-6 pt-8 pb-6 text-center">
+                <p className="text-xs font-semibold text-white bg-gradient-to-r from-vantage-purple via-vantage-pink to-vantage-coral rounded-full inline-block px-3 py-1 mb-4">
+                  Finish setting up your profile
+                </p>
+                <h3 className="text-lg font-semibold text-slate-900 mb-2">
+                  Create your free Vantage account in seconds
+                </h3>
+                <div className="space-y-3 mb-4">
+                  <input
+                    type="text"
+                    placeholder="Name or nickname"
+                    className="w-full rounded-full border border-slate-300 px-4 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-vantage-pink"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                  <input
+                    type="email"
+                    placeholder="Real email address"
+                    className="w-full rounded-full border border-slate-300 px-4 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-vantage-pink"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </div>
+                {error && (
+                  <p className="text-[11px] text-vantage-pink mb-2">{error}</p>
+                )}
+                <button
+                  type="button"
+                  onClick={handlePromoPrimaryClick}
+                  disabled={submitting}
+                  className="w-full bg-gradient-to-r from-vantage-purple via-vantage-pink to-vantage-coral hover:opacity-90 text-white text-sm font-semibold rounded-full py-3 mb-3 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {submitting ? 'Creating account…' : 'Create account'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleGoogleSignIn}
+                  className="w-full border border-slate-300 rounded-full py-3 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-2"
+                >
+                  <span className="inline-flex items-center justify-center h-4 w-4 rounded-full bg-white overflow-hidden">
+                    <img
+                      src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
+                      alt="Google"
+                      className="h-3 w-3"
+                    />
+                  </span>
+                  <span>Sign in with Google</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -506,10 +801,38 @@ function App() {
               Copyright Vantage Dating 2026. All rights reserved.
             </p>
             <div className="flex flex-wrap gap-3 justify-end w-full sm:w-auto">
-              <button className="hover:underline">About</button>
-              <button className="hover:underline">Terms &amp; Conditions</button>
-              <button className="hover:underline">Privacy Policy</button>
-              <button className="hover:underline">Dating Security</button>
+              <a
+                href="https://app.vantagedating.com/about"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:underline text-inherit"
+              >
+                About
+              </a>
+              <a
+                href="https://app.vantagedating.com/terms"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:underline text-inherit"
+              >
+                Terms &amp; Conditions
+              </a>
+              <a
+                href="https://app.vantagedating.com/privacy"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:underline text-inherit"
+              >
+                Privacy Policy
+              </a>
+              <a
+                href="https://app.vantagedating.com/safety"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:underline text-inherit"
+              >
+                Dating Security
+              </a>
             </div>
           </div>
           {/* Empty right column so nothing overlaps image side text */}
