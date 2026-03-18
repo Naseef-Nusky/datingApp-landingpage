@@ -595,6 +595,10 @@ function App() {
               const lang = e.target.value;
               setLanguage(lang);
               localStorage.setItem('landing_language', lang);
+              // If user switches back to English, reload to restore original text
+              if (lang === 'en' || lang === 'en-uk') {
+                window.location.reload();
+              }
             }}
           >
             <option value="en">English</option>
