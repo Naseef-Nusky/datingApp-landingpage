@@ -201,6 +201,10 @@ function App() {
     window.location.reload();
   };
 
+  const handleBackToLogin = () => {
+    window.location.href = 'https://app.vantagedating.com/';
+  };
+
   const handleOpenEmailInbox = () => {
     const addr = (email || '').toLowerCase();
     const domain = addr.split('@')[1] || '';
@@ -215,7 +219,9 @@ function App() {
   };
 
   const handleGoogleSignIn = () => {
-    window.location.href = `${apiUrl}/api/auth/google`;
+    const returnTo = `${window.location.origin}${window.location.pathname}?emailSent=1`;
+    const url = `${apiUrl}/api/auth/google?returnTo=${encodeURIComponent(returnTo)}`;
+    window.location.href = url;
   };
 
   const handlePromoPrimaryClick = async () => {
@@ -556,6 +562,18 @@ function App() {
     );
   };
 
+  // If we return from Google with a flag, open the email-sent popup automatically
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('emailSent') === '1') {
+      setStep('emailSent');
+      // Clean the flag from URL so refresh doesn't keep reopening
+      const url = new URL(window.location.href);
+      url.searchParams.delete('emailSent');
+      window.history.replaceState({}, '', url.toString());
+    }
+  }, []);
+
   const getRightImage = () => {
     if (step === 'goal') return '/whatisyourgoal.png';
     if (step === 'attraction') return '/attracts.png';
@@ -683,13 +701,22 @@ function App() {
               <p className="text-xs text-slate-600 mb-4">
                 Didn&apos;t receive anything yet? Check your spam or promotions folder, or request a fresh link from the login page.
               </p>
-              <button
-                type="button"
-                onClick={handleOpenEmailInbox}
-                className="inline-flex items-center justify-center px-6 py-3.5 rounded-full text-white text-sm font-semibold bg-gradient-to-r from-vantage-purple via-vantage-pink to-vantage-coral hover:opacity-90 transition"
-              >
-                Go to your email inbox
-              </button>
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                <button
+                  type="button"
+                  onClick={handleOpenEmailInbox}
+                  className="inline-flex items-center justify-center px-6 py-3.5 rounded-full text-white text-sm font-semibold bg-gradient-to-r from-vantage-purple via-vantage-pink to-vantage-coral hover:opacity-90 transition"
+                >
+                  Go to your email inbox
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBackToLogin}
+                  className="inline-flex items-center justify-center px-6 py-3.5 rounded-full border border-slate-300 text-slate-700 text-sm font-semibold hover:bg-slate-50 transition"
+                >
+                  Back to login
+                </button>
+              </div>
             </div>
           </div>
         </div>
