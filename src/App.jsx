@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import './index.css';
 import { translatePage } from './translatePage';
+import { trackEvent } from './analytics.js';
 
 const STEPS = [
   'gender',
@@ -86,6 +87,10 @@ function App() {
   const apiUrl = import.meta.env.PROD ? 'https://api.vantagedating.com' : '';
   // Main app URL for legal pages (same routes as frontend: /about, /terms, /privacy, /safety)
   const frontendBase = (import.meta.env.VITE_FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+
+  useEffect(() => {
+    trackEvent('landing_funnel_step', { step });
+  }, [step]);
 
   // Show promo popup once when user pauses anywhere on the landing flow
   useEffect(() => {
