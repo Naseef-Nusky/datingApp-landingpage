@@ -85,8 +85,6 @@ function App() {
   const activeRight = RIGHT_MESSAGES[step];
   // Use production API when deployed, Vite dev proxy in local
   const apiUrl = import.meta.env.PROD ? 'https://api.vantagedating.com' : '';
-  // Main app URL for legal pages (same routes as frontend: /about, /terms, /privacy, /safety)
-  const frontendBase = (import.meta.env.VITE_FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
 
   useEffect(() => {
     trackEvent('landing_funnel_step', { step });
@@ -207,7 +205,7 @@ function App() {
   };
 
   const handleBackToLogin = () => {
-    window.location.href = 'https://app.vantagedating.com/';
+    window.location.href = 'https://vantagedating.com/';
   };
 
   const handleOpenEmailInbox = () => {
@@ -834,11 +832,11 @@ function App() {
           {/* Left side footer content, aligned with left section */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
             <p className="text-left flex-1">
-              Copyright Vantage Dating 2026. All rights reserved.
+              Copyright Vantage Dating {new Date().getFullYear()}. All rights reserved.
             </p>
             <div className="flex flex-wrap gap-3 justify-end w-full sm:w-auto">
               <a
-                href="https://app.vantagedating.com/about"
+                href="https://vantagedating.com/about"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:underline text-inherit"
@@ -846,7 +844,7 @@ function App() {
                 About
               </a>
               <a
-                href="https://app.vantagedating.com/terms"
+                href="https://vantagedating.com/terms"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:underline text-inherit"
@@ -854,7 +852,7 @@ function App() {
                 Terms &amp; Conditions
               </a>
               <a
-                href="https://app.vantagedating.com/privacy"
+                href="https://vantagedating.com/privacy"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:underline text-inherit"
@@ -862,7 +860,7 @@ function App() {
                 Privacy Policy
               </a>
               <a
-                href="https://app.vantagedating.com/safety"
+                href="https://vantagedating.com/safety"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:underline text-inherit"
