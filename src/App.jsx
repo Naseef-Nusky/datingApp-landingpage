@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import './index.css';
 import { translatePage } from './translatePage';
-import { trackEvent } from './analytics.js';
+import { trackEvent, trackGoogleAdsConversion } from './analytics.js';
 
 const STEPS = [
   'gender',
@@ -180,6 +180,7 @@ function App() {
           // but surface the backend error below the form.
           setError(message);
         } else {
+          trackGoogleAdsConversion();
           setStep('emailSent');
           return;
         }
@@ -263,6 +264,8 @@ function App() {
           // ignore JSON parse errors
         }
         setError(message);
+      } else {
+        trackGoogleAdsConversion();
       }
     } catch (err) {
       setError(err.message || 'Failed to send login link. Please try again.');
@@ -569,6 +572,7 @@ function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('emailSent') === '1') {
+      trackGoogleAdsConversion();
       setStep('emailSent');
       // Clean the flag from URL so refresh doesn't keep reopening
       const url = new URL(window.location.href);

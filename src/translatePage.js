@@ -34,7 +34,10 @@ export async function translatePage(targetLang) {
   const texts = elements.map((el) => el.innerText.trim()).filter(Boolean);
   if (texts.length === 0) return;
 
-  const apiUrl = 'https://api.vantagedating.com';
+  // Same as main app + landing App.jsx: dev uses Vite proxy (/api → localhost:5001); prod hits API host.
+  const apiUrl =
+    import.meta.env.VITE_API_URL ||
+    (import.meta.env.PROD ? 'https://api.vantagedating.com' : '');
   try {
     const res = await fetch(`${apiUrl}/api/translate`, {
       method: 'POST',
